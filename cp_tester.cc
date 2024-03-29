@@ -1264,7 +1264,7 @@ int main(int argc, char **argv) {
     LbControlPlaneClient client(cpAddr, cpPort,
                                 listeningAddr, port, pRange,
                                 clientName, adminToken, lbid,
-                                weight, setPoint);
+                                weight);
 
     // Register this client with the grpc server
     int32_t err = client.Register();

@@ -42,6 +42,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include <regex>
 
 #ifdef __APPLE__
     #include <sys/sysctl.h>
@@ -106,20 +107,17 @@ class BackEnd {
     const std::string & getSessionId()     const;
     const std::string & getName()          const;
     const std::string & getLbId()          const;
+    const std::string & getIpAddress()     const;
 
     google::protobuf::Timestamp getTimestamp()  const;
     int64_t  getTime()         const;
     int64_t  getLocalTime()    const;
 
     float   getWeight()           const;
-//    float   getFillPercent()      const;
-//    float   getPidError()         const;
 
-    const std::string & getIpAddress() const;
     uint32_t getUdpPort()              const;
     uint32_t getPortRange()            const;
 
-//
     bool getIsReady()  const;
     bool getIsActive() const;
     void setIsActive(bool active);
@@ -188,14 +186,15 @@ class BackEnd {
 /** Class used to send data from backend (client) to control plane (server). */
 class LbControlPlaneClient {
     
-    public:     
-        
+    public:
+
+        LbControlPlaneClient(const std::string& URL);
+
         LbControlPlaneClient(const std::string& cpIP, uint16_t cpPort,
                              const std::string& beIP, uint16_t bePort,
                              PortRange bePortRange,
-                             const std::string& _name, const std::string& _token,
-                             const std::string& lbId,
-                             float _weight, float _setPoint);
+                             const std::string& name, const std::string& token,
+                             const std::string& lbId, float weight);
 
       	int Register();
       	int Deregister() const;
@@ -206,7 +205,7 @@ class LbControlPlaneClient {
         const std::string & getCpAddr()       const;
         const std::string & getDataAddr()     const;
         const std::string & getName()         const;
-        const std::string & getAdminToken()   const;
+        const std::string & getToken()   const;
         const std::string & getSessionToken() const;
 
         uint16_t  getCpPort()           const;
@@ -214,7 +213,6 @@ class LbControlPlaneClient {
 
 		PortRange getDataPortRange()    const;
 
-		float     getSetPointPercent()  const;
 		float     getFillPercent()      const;
         float     getPidError()         const;
         bool      getIsReady()          const;
@@ -226,81 +224,58 @@ class LbControlPlaneClient {
     /** Object used to call backend's grpc API routines. */
     std::unique_ptr<LoadBalancer::Stub> stub_;
 
-    // Used to reserve control plane
-
-    /** LB's name. */
-    std::string lbName;
-
-    /** Time in seconds to reserve the LB. */
-    int64_t reservedSec = 60;
-
-    /** Token back from CP. */
-    std::string instanceToken;
-
-    /** CP sync data receiving IPv4 address. */
-    std::string syncIpAddress;
-
-    /** CP sync data receiving port. */
-    uint16_t syncUdpPort;
-
-    /** LB data receiving IPv4 address. */
-    std::string dataIpv4Address;
-
-    /** LB data receiving IPv6 address. */
-    std::string dataIpv6Address;
-
-
-
-    // Used to connect to control plane
-
     /** Control plane's IP address (dotted decimal format). */
-    std::string cpAddr = "localhost";
-    /** Control plane's grpc port. */
-    uint16_t cpPort = 56789;
-    /** CP's target name (cpAddr:cpPort). */
-    std::string cpTarget;
+    std::string cpAddr;
 
-    /** Token used to register. */
-    std::string adminToken;
+    /** Control plane's grpc port. */
+    uint16_t cpPort;
+
+
+    // Used to register with control plane
+
+    /** Token (either admin or instance) used to register. */
+    std::string token;
+
+    /** Client/backend/caller's name. */
+    std::string name;
+
+    /** LB's id. */
+    std::string lbId;
+
+    /** Backend's weight in CP relative to the weight of other
+     * backends in this LB's schedule density. */
+    float weight;
+
+    /** This backend client's data-receiving IP addr. */
+    std::string beAddr;
+
+    /** This backend client's data-receiving port. */
+    uint16_t bePort;
+
+    /** This backend client's data-receiving port range. */
+    PortRange beRange;
 
 
     // Reply from registration request
 
     /** Token used to send state and to deregister. */
     std::string sessionToken;
+
     /** Id used to send state and to deregister. */
     std::string sessionId;
-    /** LB's id. */
-    std::string lbId;
 
-
-    /** Client/backend/caller's name. */
-    std::string name;
-
-
-
-    /** PID loop set point. */
-    float setPointPercent;
-
-    /** Backend's weight in CP relative to the weight of other backends in this LB's schedule density. */
-    float weight;
-
-    /** This backend client's data-receiving IP addr. */
-    std::string beAddr;
-    /** This backend client's data-receiving port. */
-    uint16_t bePort;
-    /** This backend client's data-receiving port range. */
-    PortRange beRange;
 
 
     // Transient data to send to control plane
 
     /** Percent of fifo entries filled with unprocessed data. */
     float fillPercent;
+
     /** PID error term in percentage of backend's fifo entries. */
     float pidError;
+
     /** Ready to receive more data or not. */
-    bool isReady;
+    bool isReady = true;
 
 };
 
@@ -341,21 +316,35 @@ public:
     int FreeLoadBalancer() const;
     int LoadBalancerStatus();
 
+    static int FreeLoadBalancer(const std::string& cpIP, uint16_t cpPort,
+                                std::string lbId, std::string adminToken);
 
-    const std::string & getCpAddr()        const;
-    const std::string & getDataAddr()      const;
-    const std::string & getDataAddrV6()    const;
-    const std::string & getName()          const;
+    const std::string & getLbName()        const;
     const std::string & getAdminToken()    const;
     const std::string & getInstanceToken() const;
-    const std::string & getId()            const;
+    const std::string & getLbId()          const;
 
-    uint16_t  getCpPort()   const;
-    uint16_t  getDataPort() const;
+    const std::string & getCpAddr()        const;
+    const std::string & getSyncAddr()      const;
+    const std::string & getDataAddrV4()    const;
+    const std::string & getDataAddrV6()    const;
 
+    uint16_t getSyncPort() const;
+    uint16_t getCpPort()   const;
+    uint16_t getDataPort() const;
+     int64_t getUntil()    const;
+
+    bool reservationElapsed() const;
+    bool reserved() const;
+    const std::unordered_map<std::string, LbClientStatus> & getClientStats() const;
 
 
 private:
+
+
+    /** Does this object represent a current LB reservation?
+     *  Or has it expired or been terminated? */
+    bool isReserved = false;
 
     /** Object used to call backend's grpc API routines. */
     std::unique_ptr<LoadBalancer::Stub> stub_;

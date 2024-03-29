@@ -12,7 +12,6 @@
 
 #include "lb_cplane.h"
 
-static std::atomic<std::uint64_t>  backendToken{0};
 using namespace std::chrono;
 
 
@@ -49,13 +48,9 @@ using namespace std::chrono;
             }
 
             // Now record local time
-            localTime   = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+            localTime = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 
-            sessionId    = state->sessionid();
-
-//            fillPercent  = state->fillpercent();
-//            pidError     = state->piderror();
-//            isReady      = state->isready();
+            sessionId = state->sessionid();
         }
 
 
@@ -138,40 +133,58 @@ using namespace std::chrono;
  		/////////////////////////////////
 		// LbControlPlaneClient class
 		/////////////////////////////////
-                
-       
+
+
         /**
          * Constructor.
-         * @param cIp          grpc IP address of control plane (dotted decimal format).
-         * @param cPort        grpc port of control plane.
-         * @param bIp          data-receiving IP address of this backend client.
-         * @param bPort        data-receiving port of this backend client.
-         * @param bPortRange   range of data-receiving ports for this backend client.
+         * @param URL   URL obtained from running lbReserve. This string
+         *              contains all info needed to register with reasonable
+         *              defaults for unspecified quantities.
+         *              Anything not specified by the URL can be set using
+         *              provided methods.
+         *
+         */
+        LbControlPlaneClient::LbControlPlaneClient(const std::string& URL) {
+
+
+
+            //std::string cpTarget = cpIP + ":" + std::to_string(cpPort);
+            //stub_ = LoadBalancer::NewStub(grpc::CreateChannel(cpTarget, grpc::InsecureChannelCredentials()));
+        }
+
+        /**
+         * Constructor.
+         * @param cpIp         grpc IP address of control plane (dotted decimal format).
+         * @param cpPort       grpc port of control plane.
+         * @param beIp         data-receiving IP address of this backend client.
+         * @param bePort       data-receiving port of this backend client.
+         * @param beRange      range of data-receiving ports for this backend client.
          * @param cliName      name of this backend.
-         * @param token        administration token.
-         * @param lbID         LB's id.
-         * @param cWeight      weight of this client compared to others in schedule density.
-         * @param setPoint     PID loop set point (% of fifo).
-         * 
+         * @param token        administration or instance token.
+         * @param lbId         LB's id.
+         * @param weight       weight of this client compared to others in schedule density.
+         *
          */
         LbControlPlaneClient::LbControlPlaneClient(
-                             const std::string& cIP, uint16_t cPort,
-                             const std::string& bIP, uint16_t bPort,
-                             PortRange bPortRange,
-                             const std::string& cliName, const std::string& token,
-                             const std::string& lbID,
-                             float cWeight, float setPoint) :
-                             
-                             cpAddr(cIP), cpPort(cPort), beAddr(bIP), bePort(bPort),
-                             beRange(bPortRange), name(cliName), adminToken(token),
-                             lbId(lbID), weight(cWeight), setPointPercent(setPoint) {
-                
-		    cpTarget = cIP + ":" + std::to_string(cPort);
-		    stub_ = LoadBalancer::NewStub(grpc::CreateChannel(cpTarget, grpc::InsecureChannelCredentials()));
-        }  
-        
-  
-	    /**
+                const std::string& cpIP, uint16_t cpPort,
+                const std::string& beIP, uint16_t bePort,
+                PortRange beRange,
+                const std::string& cliName, const std::string& token,
+                const std::string& lbId, float weight) :
+
+                cpAddr(cpIP), cpPort(cpPort), beAddr(beIP), bePort(bePort),
+                beRange(beRange), name(cliName), token(token),
+                lbId(lbId), weight(weight) {
+
+            std::string cpTarget = cpIP + ":" + std::to_string(cpPort);
+            stub_ = LoadBalancer::NewStub(grpc::CreateChannel(cpTarget, grpc::InsecureChannelCredentials()));
+        }
+
+
+
+
+
+        /**
          * Update internal state of this object (eventually sent to control plane).
          * @param fill      % of fifo filled
          * @param pidErr    pid error (units of % fifo filled)
@@ -197,7 +210,7 @@ using namespace std::chrono;
 		    // Registration message we are sending to server
 		    RegisterRequest request;
 
-            request.set_token(adminToken);
+            request.set_token(token);
             request.set_name(name);
             request.set_lbid(lbId);
             request.set_weight(weight);
@@ -289,8 +302,7 @@ using namespace std::chrono;
 
             // In order NOT to throw the CP into unstable behavior,
             // always say the we are ready to receive data.
-            //request.set_isready(isReady);
-            request.set_isready(true);
+            request.set_isready(isReady);
 
 		    // Container for the data we expect from the server.
 		    SendStateReply reply;
@@ -316,19 +328,18 @@ using namespace std::chrono;
         const std::string & LbControlPlaneClient::getCpAddr()       const   {return cpAddr;}
         const std::string & LbControlPlaneClient::getDataAddr()     const   {return beAddr;}
         const std::string & LbControlPlaneClient::getName()         const   {return name;}
-        const std::string & LbControlPlaneClient::getAdminToken()   const   {return adminToken;}
+        const std::string & LbControlPlaneClient::getToken()        const   {return token;}
         const std::string & LbControlPlaneClient::getSessionToken() const   {return sessionToken;}
 
-        uint16_t   LbControlPlaneClient::getCpPort()             const   {return cpPort;}
-        uint16_t   LbControlPlaneClient::getDataPort()           const   {return bePort;}
+        uint16_t   LbControlPlaneClient::getCpPort()                const   {return cpPort;}
+        uint16_t   LbControlPlaneClient::getDataPort()              const   {return bePort;}
 
-		PortRange  LbControlPlaneClient::getDataPortRange()      const   {return beRange;}
+		PortRange  LbControlPlaneClient::getDataPortRange()         const   {return beRange;}
 
-		float      LbControlPlaneClient::getSetPointPercent()    const   {return setPointPercent;}
-		float      LbControlPlaneClient::getFillPercent()        const   {return fillPercent;}
-        float      LbControlPlaneClient::getPidError()           const   {return pidError;}
+		float      LbControlPlaneClient::getFillPercent()           const   {return fillPercent;}
+        float      LbControlPlaneClient::getPidError()              const   {return pidError;}
 
-        bool       LbControlPlaneClient::getIsReady()            const   {return isReady;}
+        bool       LbControlPlaneClient::getIsReady()               const   {return isReady;}
 
 
 
@@ -348,13 +359,14 @@ using namespace std::chrono;
          */
         LbReservation::LbReservation (const std::string& cpIP, uint16_t cpPort,
                                       const std::string& name,
-                                      const std::string& token,
+                                      const std::string& admintoken,
                                       int64_t until) :
 
-                cpAddr(cIP), cpPort(cPort), lbName(name),
-                adminToken(token), untilSeconds(until) {
+                cpAddr(cpIP), cpPort(cpPort), lbName(name),
+                adminToken(admintoken),
+                untilSeconds(until) {
 
-            cpTarget = cIP + ":" + std::to_string(cPort);
+            std::string cpTarget = cpIP + ":" + std::to_string(cpPort);
             stub_ = LoadBalancer::NewStub(grpc::CreateChannel(cpTarget, grpc::InsecureChannelCredentials()));
         }
 
@@ -362,6 +374,7 @@ using namespace std::chrono;
         /**
          * Reserve a specified LB to use.
          * @return 0 if successful, 1 if error in grpc communication
+         *           or until in already in the past.
          */
         int LbReservation::ReserveLoadBalancer() {
             // Reserve-LB message we are sending to server
@@ -376,6 +389,10 @@ using namespace std::chrono;
             timestamp->set_nanos(0);
             // Give ownership of object to protobuf
             request.set_allocated_until(timestamp);
+
+//            std::cout << "ReserveLoadBalancer: " <<
+//                      ", admin token = " << adminToken <<
+//                      ", lb name = " << lbName << std::endl;
 
             // Container for the response we expect from server
             ReserveLoadBalancerReply reply;
@@ -401,6 +418,14 @@ using namespace std::chrono;
             dataIpv4Address = reply.dataipv4address();
             dataIpv6Address = reply.dataipv6address();
 
+            std::cout << "ReserveLoadBalancer: lbID = " << lbId <<
+                         ", instance token = " << instanceToken << std::endl <<
+                         "syncAddr = " << syncIpAddress << ", syncPort = " << syncUdpPort <<
+                         ", data Ip = " << dataIpv4Address << std::endl;
+
+
+            isReserved = true;
+
             return 0;
         }
 
@@ -413,7 +438,49 @@ using namespace std::chrono;
 
             // Free-LB message we are sending to server
             FreeLoadBalancerRequest request;
-            request.set_token(instanceToken);
+            request.set_token(adminToken);
+            request.set_lbid(lbId);
+
+            // Container for the response we expect from server
+            FreeLoadBalancerReply reply;
+
+            // Context for the client. It could be used to convey extra information to
+            // the server and/or tweak certain RPC behaviors.
+            ClientContext context;
+
+            std::cout << "FreeLoadBalancer: lbid = " << lbId <<
+                      ", admin token = " << adminToken << std::endl;
+
+            // The actual RPC
+            Status status = stub_->FreeLoadBalancer(&context, request, &reply);
+
+            // Act upon its status
+            if (!status.ok()) {
+                std::cout << status.error_code() << ": " << status.error_message() << std::endl;
+                return 1;
+            }
+            return 0;
+        }
+
+
+
+        /**
+         * STATIC method to free the LB from a single reserved slot.
+         * @return 0 if successful, 1 if error in grpc communication
+         * @param lbId
+         * @param adminToken
+         * @return
+         */
+        int LbReservation::FreeLoadBalancer(const std::string& cpIP, uint16_t cpPort,
+                                            std::string lbId, std::string adminToken) {
+
+            std::string cpTarget = cpIP + ":" + std::to_string(cpPort);
+            std::unique_ptr<LoadBalancer::Stub> stub_ =
+                    LoadBalancer::NewStub(grpc::CreateChannel(cpTarget, grpc::InsecureChannelCredentials()));
+
+            // Free-LB message we are sending to server
+            FreeLoadBalancerRequest request;
+            request.set_token(adminToken);
             request.set_lbid(lbId);
 
             // Container for the response we expect from server
@@ -500,8 +567,17 @@ using namespace std::chrono;
         uint16_t   LbReservation::getCpPort()   const   {return cpPort;}
         uint16_t   LbReservation::getDataPort() const   {return 19522;}
          int64_t   LbReservation::getUntil()    const   {return untilSeconds;}
-         
-        bool  LbReservation::reserved() const  {return closed || timeElapsed;}
+
+        bool LbReservation::reservationElapsed() const {
+            struct timespec now;
+            clock_gettime(CLOCK_REALTIME, &now);
+
+            if (now.tv_sec > untilSeconds) {
+                return true;
+            }
+            return false;
+        };
+        bool LbReservation::reserved() const {return isReserved && !reservationElapsed();}
         const std::unordered_map<std::string, LbClientStatus> & LbReservation::getClientStats() const {return clientStats;}
 
 
