@@ -308,6 +308,15 @@ class LbReservation {
 
 public:
 
+    static std::string ReserveLoadBalancer(const std::string& cpIP, uint16_t cpPort,
+                                           std::string lbName, std::string adminToken,
+                                           int64_t untilSeconds, bool ipv6);
+
+    static int FreeLoadBalancer(const std::string& cpIP, uint16_t cpPort,
+                                std::string lbId, std::string adminToken);
+
+
+
     LbReservation(const std::string& cpIP, uint16_t cpPort,
                   const std::string& _name, const std::string& adminToken,
                   int64_t untilSeconds);
@@ -315,9 +324,6 @@ public:
     int ReserveLoadBalancer();
     int FreeLoadBalancer() const;
     int LoadBalancerStatus();
-
-    static int FreeLoadBalancer(const std::string& cpIP, uint16_t cpPort,
-                                std::string lbId, std::string adminToken);
 
     const std::string & getLbName()        const;
     const std::string & getAdminToken()    const;

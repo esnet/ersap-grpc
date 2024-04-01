@@ -373,6 +373,7 @@ using namespace std::chrono;
 
         /**
          * Reserve a specified LB to use.
+         * Any print statement in this method will mess up the
          * @return 0 if successful, 1 if error in grpc communication
          *           or until in already in the past.
          */
@@ -418,10 +419,10 @@ using namespace std::chrono;
             dataIpv4Address = reply.dataipv4address();
             dataIpv6Address = reply.dataipv6address();
 
-            std::cout << "ReserveLoadBalancer: lbID = " << lbId <<
-                         ", instance token = " << instanceToken << std::endl <<
-                         "syncAddr = " << syncIpAddress << ", syncPort = " << syncUdpPort <<
-                         ", data Ip = " << dataIpv4Address << std::endl;
+//            std::cout << "ReserveLoadBalancer: lbID = " << lbId <<
+//                         ", instance token = " << instanceToken << std::endl <<
+//                         "syncAddr = " << syncIpAddress << ", syncPort = " << syncUdpPort <<
+//                         ", data Ip = " << dataIpv4Address << std::endl;
 
 
             isReserved = true;
@@ -465,12 +466,87 @@ using namespace std::chrono;
 
 
         /**
-         * STATIC method to free the LB from a single reserved slot.
-         * @return 0 if successful, 1 if error in grpc communication
-         * @param lbId
+         * STATIC method to reserve a specified LB to use.
+         * The resultant URI is returned.
+         * Any print statement in this method will mess up the execution of lbreserve.
+         *
+         * @param cpIP
+         * @param cpPort
+         * @param lbName
          * @param adminToken
-         * @return
+         * @param untilSeconds
+         * @param ipv6 use IP version 6 destination address when sending data.
+         * @return resulting URI starting with "ejfat",
+         *         else error string starting with "error".
          */
+        std::string LbReservation::ReserveLoadBalancer(const std::string& cpIP, uint16_t cpPort,
+                                                       std::string lbName, std::string adminToken,
+                                                       int64_t untilSeconds, bool ipv6) {
+
+            std::string cpTarget = cpIP + ":" + std::to_string(cpPort);
+            std::unique_ptr<LoadBalancer::Stub> stub_ =
+                    LoadBalancer::NewStub(grpc::CreateChannel(cpTarget, grpc::InsecureChannelCredentials()));
+
+            // Reserve-LB message we are sending to server
+            ReserveLoadBalancerRequest request;
+
+            request.set_token(adminToken);
+            request.set_name(lbName);
+
+            // Set the time for this reservation to run out
+            auto timestamp = new google::protobuf::Timestamp{};
+            timestamp->set_seconds(untilSeconds);
+            timestamp->set_nanos(0);
+            // Give ownership of object to protobuf
+            request.set_allocated_until(timestamp);
+
+            // Container for the response we expect from server
+            ReserveLoadBalancerReply reply;
+
+            // Context for the client. It could be used to convey extra information to
+            // the server and/or tweak certain RPC behaviors.
+            ClientContext context;
+
+            // The actual RPC
+            Status status = stub_->ReserveLoadBalancer(&context, request, &reply);
+
+            // Act upon its status
+            char url[256];
+
+            if (!status.ok()) {
+                //std::cout << status.error_code() << ": " << status.error_message() << std::endl;
+                sprintf(url, "error = %s", status.error_message().c_str());
+            }
+            else {
+                // Things returned from CP used to create ejfat URI
+                if (ipv6) {
+                    sprintf(url, "ejfat://%s@%s:%hu/lb/%s?data=%s:%d&sync=%s:%d",
+                            reply.token().c_str(),
+                            cpIP.c_str(), cpPort, reply.lbid().c_str(),
+                            reply.dataipv6address().c_str(), 19522,
+                            reply.syncipaddress().c_str(), reply.syncudpport());
+                }
+                else {
+                    sprintf(url, "ejfat://%s@%s:%hu/lb/%s?data=%s:%d&sync=%s:%d",
+                            reply.token().c_str(),
+                            cpIP.c_str(), cpPort, reply.lbid().c_str(),
+                            reply.dataipv4address().c_str(), 19522,
+                            reply.syncipaddress().c_str(), reply.syncudpport());
+                }
+            }
+
+            return std::string(url);
+        }
+
+
+         /**
+          * STATIC method to free the LB from a single reserved slot.
+          * @param cpIP
+          * @param cpPort
+          * @param lbId
+          * @param adminToken
+          * @return 0 if successful, 1 if error in grpc communication
+          */
         int LbReservation::FreeLoadBalancer(const std::string& cpIP, uint16_t cpPort,
                                             std::string lbId, std::string adminToken) {
 
