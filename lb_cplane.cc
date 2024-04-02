@@ -374,6 +374,9 @@ using namespace std::chrono;
         /**
          * Reserve a specified LB to use.
          * Any print statement in this method will mess up the
+         * URI value written into the EJFAT_URI env variable.
+         * This will happen if there's an error.
+         *
          * @return 0 if successful, 1 if error in grpc communication
          *           or until in already in the past.
          */
@@ -390,10 +393,6 @@ using namespace std::chrono;
             timestamp->set_nanos(0);
             // Give ownership of object to protobuf
             request.set_allocated_until(timestamp);
-
-//            std::cout << "ReserveLoadBalancer: " <<
-//                      ", admin token = " << adminToken <<
-//                      ", lb name = " << lbName << std::endl;
 
             // Container for the response we expect from server
             ReserveLoadBalancerReply reply;
@@ -419,12 +418,6 @@ using namespace std::chrono;
             dataIpv4Address = reply.dataipv4address();
             dataIpv6Address = reply.dataipv6address();
 
-//            std::cout << "ReserveLoadBalancer: lbID = " << lbId <<
-//                         ", instance token = " << instanceToken << std::endl <<
-//                         "syncAddr = " << syncIpAddress << ", syncPort = " << syncUdpPort <<
-//                         ", data Ip = " << dataIpv4Address << std::endl;
-
-
             isReserved = true;
 
             return 0;
@@ -449,9 +442,6 @@ using namespace std::chrono;
             // the server and/or tweak certain RPC behaviors.
             ClientContext context;
 
-            std::cout << "FreeLoadBalancer: lbid = " << lbId <<
-                      ", admin token = " << adminToken << std::endl;
-
             // The actual RPC
             Status status = stub_->FreeLoadBalancer(&context, request, &reply);
 
@@ -464,18 +454,68 @@ using namespace std::chrono;
         }
 
 
+        /**
+         * Get LB status.
+         * @return 0 if successful, 1 if error in grpc communication
+         */
+        int LbReservation::LoadBalancerStatus() {
+            // LB-request-for-status message we are sending to server
+            LoadBalancerStatusRequest request;
+
+            request.set_token(adminToken);
+            request.set_lbid(lbId);
+
+            // Container for the response we expect from server
+            LoadBalancerStatusReply reply;
+
+            // Context for the client. It could be used to convey extra information to
+            // the server and/or tweak certain RPC behaviors.
+            ClientContext context;
+
+            // The actual RPC
+            Status status = stub_->LoadBalancerStatus(&context, request, &reply);
+
+            // Act upon its status
+            if (!status.ok()) {
+                std::cout << status.error_code() << ": " << status.error_message() << std::endl;
+                return 1;
+            }
+
+            // Things returned from CP
+
+            // How many clients on this LB?
+            int clientCount = reply.workers_size();
+
+            for (size_t j = 0; j < clientCount; j++) {
+                std::string name = reply.workers(j).name();
+
+                // Either returns the entry at this key, or creates one if none exists
+                auto & stats = clientStats[name];
+                stats.fillPercent   = reply.workers(j).fillpercent();
+                stats.controlSignal = reply.workers(j).controlsignal();
+                stats.slotsAssigned = reply.workers(j).slotsassigned();
+                stats.lastUpdated   = reply.workers(j).lastupdated();
+                stats.updateTime = google::protobuf::util::TimeUtil::TimestampToMilliseconds(stats.lastUpdated);
+            }
+
+            return 0;
+        }
+
+
 
         /**
          * STATIC method to reserve a specified LB to use.
          * The resultant URI is returned.
          * Any print statement in this method will mess up the execution of lbreserve.
          *
-         * @param cpIP
-         * @param cpPort
-         * @param lbName
-         * @param adminToken
-         * @param untilSeconds
-         * @param ipv6 use IP version 6 destination address when sending data.
+         * @param cpIP          control plane IP address for grpc communication.
+         * @param cpPort        control plane TCP port for grpc communication.
+         * @param lbName        name to assign this LB.
+         * @param adminToken    token used to interact with LB.
+         * @param untilSeconds  time (seconds past epoch) at which reservation ends.
+         * @param ipv6          use IP version 6 destination address when constructing
+         *                      URI containing info for sending data.
+         *
          * @return resulting URI starting with "ejfat",
          *         else error string starting with "error".
          */
@@ -539,14 +579,16 @@ using namespace std::chrono;
         }
 
 
-         /**
-          * STATIC method to free the LB from a single reserved slot.
-          * @param cpIP
-          * @param cpPort
-          * @param lbId
-          * @param adminToken
-          * @return 0 if successful, 1 if error in grpc communication
-          */
+        /**
+         * STATIC method to free the LB from a single reserved slot.
+         *
+         * @param cpIP          control plane IP address for grpc communication.
+         * @param cpPort        control plane TCP port for grpc communication.
+         * @param lbId          id of LB to be freed.
+         * @param adminToken    token used to interact with LB.
+         *
+         * @return 0 if successful, 1 if error in grpc communication
+         */
         int LbReservation::FreeLoadBalancer(const std::string& cpIP, uint16_t cpPort,
                                             std::string lbId, std::string adminToken) {
 
@@ -580,10 +622,24 @@ using namespace std::chrono;
 
 
         /**
-         * Get LB status.
+         * STATIC method to get LB status info.
+         *
+         * @param cpIP          control plane IP address for grpc communication.
+         * @param cpPort        control plane TCP port for grpc communication.
+         * @param lbId          id of LB to be freed.
+         * @param adminToken    token used to interact with LB.
+         * @param clientStats   ref to map in which to store LB client stats.
+         *
          * @return 0 if successful, 1 if error in grpc communication
          */
-        int LbReservation::LoadBalancerStatus() {
+        int LbReservation::LoadBalancerStatus(const std::string& cpIP, uint16_t cpPort,
+                                              std::string lbId, std::string adminToken,
+                                              std::unordered_map<std::string, LbClientStatus>& clientStats) {
+
+            std::string cpTarget = cpIP + ":" + std::to_string(cpPort);
+            std::unique_ptr<LoadBalancer::Stub> stub_ =
+                    LoadBalancer::NewStub(grpc::CreateChannel(cpTarget, grpc::InsecureChannelCredentials()));
+
             // LB-request-for-status message we are sending to server
             LoadBalancerStatusRequest request;
 

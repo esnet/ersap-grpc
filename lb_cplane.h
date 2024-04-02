@@ -287,7 +287,7 @@ class LbClientStatus {
 
 public:
 
-    std::string name;
+    //std::string name;
     float fillPercent      = 0.;
     float controlSignal    = 0.;
     uint32_t slotsAssigned = 0;
@@ -298,6 +298,15 @@ public:
     /** Time in milliseconds past epoch that this data was updated.
      *  Same as "lastUpdated" but in different format. */
     int64_t updateTime;
+
+
+    void printClientStats(std::ostream& out, std::string& indent) {
+        out << indent << "fill % :         " << fillPercent << std::endl;
+        out << indent << "control sig :    " << controlSignal << std::endl;
+        out << indent << "slots assigned : " << slotsAssigned << std::endl;
+        out << indent << "update time :    " << updateTime << std::endl;
+    }
+
 };
 
 
@@ -314,6 +323,11 @@ public:
 
     static int FreeLoadBalancer(const std::string& cpIP, uint16_t cpPort,
                                 std::string lbId, std::string adminToken);
+
+    static int LoadBalancerStatus(const std::string& cpIP, uint16_t cpPort,
+                                  std::string lbId, std::string adminToken,
+                                  std::unordered_map<std::string, LbClientStatus>& stats);
+
 
 
 
