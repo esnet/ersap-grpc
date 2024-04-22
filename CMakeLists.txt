@@ -51,20 +51,29 @@ set(_PROTOBUF_LIBPROTOBUF protobuf::libprotobuf)
 set(_PROTOBUF_PROTOC $<TARGET_FILE:protobuf::protoc>)
 message(STATUS "_PROTOBUF_PROTOC = ${_PROTOBUF_PROTOC}")
 
-if (NOT DEFINED ENV{GRPC_INSTALL_DIR})
-    if (NOT DEFINED ENV{EJFAT_ERSAP_INSTALL_DIR})
-        message(FATAL_ERROR "Define GRPC_INSTALL_DIR or EJFAT_ERSAP_INSTALL_DIR so gRPC package can be found")
-    else()
-        set(GRPC_INSTALL_DIR $ENV{EJFAT_ERSAP_INSTALL_DIR})
-    endif()
-else()
-    set(GRPC_INSTALL_DIR $ENV{GRPC_INSTALL_DIR})
-endif()
-message(STATUS "set GRPC_INSTALL_DIR = ${GRPC_INSTALL_DIR}")
 
 # Find gRPC installation
 # Looks for gRPCConfig.cmake file installed by gRPC's cmake installation.
-find_package(gRPC REQUIRED CONFIG PATHS ${GRPC_INSTALL_DR}/lib/cmake/grpc)
+find_package(gRPC REQUIRED CONFIG)
+
+if (gRPC_FOUND)
+    message(STATUS "gRPC package IS found")
+else()
+    # Grpc cannot be found, let's try again by usin env var
+    if (NOT DEFINED ENV{GRPC_INSTALL_DIR})
+        if (NOT DEFINED ENV{EJFAT_ERSAP_INSTALL_DIR})
+            message(FATAL_ERROR "Define GRPC_INSTALL_DIR or EJFAT_ERSAP_INSTALL_DIR so gRPC package can be found")
+        else()
+            set(GRPC_INSTALL_DIR $ENV{EJFAT_ERSAP_INSTALL_DIR})
+        endif()
+    else()
+        set(GRPC_INSTALL_DIR $ENV{GRPC_INSTALL_DIR})
+    endif()
+
+    find_package(gRPC REQUIRED CONFIG PATHS ${GRPC_INSTALL_DR}/lib/cmake/grpc)
+
+endif()
+
 message(STATUS "Using gRPC ${gRPC_VERSION}")
 
 set(_REFLECTION gRPC::grpc++_reflection)
@@ -72,18 +81,23 @@ set(_GRPC_GRPCPP gRPC::grpc++)
 set(_GRPC_CPP_PLUGIN_EXECUTABLE $<TARGET_FILE:gRPC::grpc_cpp_plugin>)
 
 # Installation directory may be defined on command line with -DINSTALL_DIR=<...>
+set(INSTALL_DIR_DEFINED 1)
 if (NOT DEFINED INSTALL_DIR)
     if (NOT DEFINED ENV{EJFAT_ERSAP_INSTALL_DIR})
-        message(FATAL_ERROR "Use either -DINSTALL_DIR=<dir> or define EJFAT_ERSAP_INSTALL_DIR for installation")
+        message(STATUS "Use either -DINSTALL_DIR=<dir> or define EJFAT_ERSAP_INSTALL_DIR for installation")
+        set(INSTALL_DIR_DEFINED 0)
     else()
         set(INSTALL_DIR $ENV{EJFAT_ERSAP_INSTALL_DIR})
     endif()
 endif()
 
-message(STATUS "Installing into " ${INSTALL_DIR})
-set(INSTALL_DIR_DEFINED 1)
-set(CMAKE_INSTALL_PREFIX ${INSTALL_DIR})
-message(STATUS "CMAKE_INSTALL_PREFIX reset to " ${CMAKE_INSTALL_PREFIX})
+if (INSTALL_DIR_DEFINED)
+    message(STATUS "Installing into " ${INSTALL_DIR})
+    set(CMAKE_INSTALL_PREFIX ${INSTALL_DIR})
+    message(STATUS "CMAKE_INSTALL_PREFIX reset to " ${CMAKE_INSTALL_PREFIX})
+else()
+    message(STATUS "No installation directory defined")
+endif()
 
 
 # Proto file
@@ -117,7 +131,6 @@ set(HEADER_FILES
 
 
 # Include generated *.pb.h files
-#include_directories("${CMAKE_CURRENT_BINARY_DIR}" "${GRPC_INSTALL_DIR}/include")
 include_directories("${CMAKE_CURRENT_BINARY_DIR}")
 
 
@@ -158,7 +171,7 @@ foreach(fileName ${GRPC_EXEC_FILES})
     target_link_libraries(${execName} PUBLIC pthread ejfat_grpc)
 
     # Only install if installation directory has been defined
-    if (DEFINED INSTALL_DIR_DEFINED)
+    if (INSTALL_DIR_DEFINED)
         # Install into bin dir
         install(TARGETS ${execName} RUNTIME DESTINATION bin)
     endif()
@@ -167,7 +180,7 @@ endforeach(fileName)
 
 # Only install if installation directory has been defined.
 # CMAKE_INSTALL_PREFIX will be prepended to paths
-if (DEFINED INSTALL_DIR_DEFINED)
+if (INSTALL_DIR_DEFINED)
     install(TARGETS ejfat_grpc LIBRARY DESTINATION lib)
     install(FILES ${HEADER_FILES} DESTINATION include)
 endif()
