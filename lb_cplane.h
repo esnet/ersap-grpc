@@ -188,8 +188,6 @@ class LbControlPlaneClient {
     
     public:
 
-        LbControlPlaneClient(const std::string& URL);
-
         LbControlPlaneClient(const std::string& cpIP, uint16_t cpPort,
                              const std::string& beIP, uint16_t bePort,
                              PortRange bePortRange,

@@ -137,23 +137,6 @@ using namespace std::chrono;
 
         /**
          * Constructor.
-         * @param URL   URL obtained from running lbReserve. This string
-         *              contains all info needed to register with reasonable
-         *              defaults for unspecified quantities.
-         *              Anything not specified by the URL can be set using
-         *              provided methods.
-         *
-         */
-        LbControlPlaneClient::LbControlPlaneClient(const std::string& URL) {
-
-
-
-            //std::string cpTarget = cpIP + ":" + std::to_string(cpPort);
-            //stub_ = LoadBalancer::NewStub(grpc::CreateChannel(cpTarget, grpc::InsecureChannelCredentials()));
-        }
-
-        /**
-         * Constructor.
          * @param cpIp         grpc IP address of control plane (dotted decimal format).
          * @param cpPort       grpc port of control plane.
          * @param beIp         data-receiving IP address of this backend client.
@@ -410,10 +393,17 @@ using namespace std::chrono;
                 return 1;
             }
 
+            // To get around a bug in which we get a blank field for syncIpAddress.
+            // it should be the same as cpIP.
+            std::string syncIP = reply.syncipaddress();
+            if (syncIP.empty() || syncIP.size() < 16) {
+                syncIP = cpAddr;
+            }
+
             // things returned from CP
             instanceToken   = reply.token();
             lbId            = reply.lbid();
-            syncIpAddress   = reply.syncipaddress();
+            syncIpAddress   = syncIP;
             syncUdpPort     = reply.syncudpport();
             dataIpv4Address = reply.dataipv4address();
             dataIpv6Address = reply.dataipv6address();
@@ -550,6 +540,13 @@ using namespace std::chrono;
             // The actual RPC
             Status status = stub_->ReserveLoadBalancer(&context, request, &reply);
 
+            // To get around a bug in which we get a blank field for syncIpAddress.
+            // it should be the same as cpIP.
+            std::string syncIP = reply.syncipaddress();
+            if (syncIP.empty() || syncIP.size() < 16) {
+                syncIP = cpIP;
+            }
+
             // Act upon its status
             char url[256];
 
@@ -564,14 +561,15 @@ using namespace std::chrono;
                             reply.token().c_str(),
                             cpIP.c_str(), cpPort, reply.lbid().c_str(),
                             reply.dataipv6address().c_str(), 19522,
-                            reply.syncipaddress().c_str(), reply.syncudpport());
+                            syncIP.c_str(), reply.syncudpport());
                 }
                 else {
                     sprintf(url, "ejfat://%s@%s:%hu/lb/%s?data=%s:%d&sync=%s:%d",
                             reply.token().c_str(),
                             cpIP.c_str(), cpPort, reply.lbid().c_str(),
                             reply.dataipv4address().c_str(), 19522,
-                            reply.syncipaddress().c_str(), reply.syncudpport());
+                            syncIP.c_str(), reply.syncudpport());
+
                 }
             }
 
