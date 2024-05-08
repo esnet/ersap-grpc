@@ -44,6 +44,11 @@
 #include <sys/types.h>
 #include <regex>
 
+#include <cstring>
+#include <netdb.h>
+#include <arpa/inet.h>
+
+
 #ifdef __APPLE__
     #include <sys/sysctl.h>
 #endif

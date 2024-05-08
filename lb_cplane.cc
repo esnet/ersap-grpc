@@ -494,6 +494,75 @@ using namespace std::chrono;
 
 
         /**
+        * Function to determine if a string is an IPv4 address.
+        * @param address string containing address to examine.
+        */
+        static bool is_ipv4(const std::string& str) {
+            std::regex ipv4_regex("^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$");
+            return std::regex_match(str, ipv4_regex);
+        }
+
+        /**
+         * Function to determine if a string is an IPv6 address.
+         * @param address string containing address to examine.
+         */
+        static bool is_ipv6(const std::string& str) {
+            std::regex ipv6_regex("^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$");
+            return std::regex_match(str, ipv6_regex);
+        }
+
+
+        /**
+         * Function to take a host name and turn it into IP addresses, IPv4 and IPv6.
+         *
+         * @param host_name name of host to examine.
+         * @param ipv4 IP version 4 dot-decimal form of host_name if available.
+         * @param ipv6 IP version 6 dot-decimal form of host_name if available.
+         * @return true if successfully ran function, else false if no address info available.
+         */
+        static bool resolve_host(const std::string& host_name, std::string& ipv4, std::string& ipv6) {
+            struct addrinfo hints, *result;
+            std::memset(&hints, 0, sizeof(hints));
+            hints.ai_family = AF_UNSPEC; // Allow IPv4 or IPv6
+            hints.ai_socktype = SOCK_STREAM;
+
+            int status = getaddrinfo(host_name.c_str(), nullptr, &hints, &result);
+            if (status != 0) {
+                std::cerr << "resolveHost: getaddrinfo error: " << gai_strerror(status) << std::endl;
+                return false;
+            }
+
+            void* addr;
+            char ipstr[INET6_ADDRSTRLEN];
+            for (struct addrinfo* p = result; p != nullptr; p = p->ai_next) {
+                if (p->ai_family == AF_INET) { // IPv4
+                    struct sockaddr_in* ipv4 = reinterpret_cast<struct sockaddr_in*>(p->ai_addr);
+                    addr = &(ipv4->sin_addr);
+                } else { // IPv6
+                    struct sockaddr_in6* ipv6 = reinterpret_cast<struct sockaddr_in6*>(p->ai_addr);
+                    addr = &(ipv6->sin6_addr);
+                }
+                // Convert the IP to a string and return it
+                inet_ntop(p->ai_family, addr, ipstr, sizeof(ipstr));
+
+                if (is_ipv4(ipstr)) {
+                    ipv4 = ipstr;
+                    //std::cerr << "got IP v4 addr: " << ipstr << std::endl;
+                }
+
+                if (is_ipv6(ipstr)) {
+                    ipv6 = ipstr;
+                    //std::cerr << "got IP v6 addr: " << ipstr << std::endl;
+                }
+            }
+
+            freeaddrinfo(result); // Free memory
+            return true;
+        }
+
+
+
+        /**
          * STATIC method to reserve a specified LB to use.
          * The resultant URI is returned.
          * Any print statement in this method will mess up the execution of lbreserve.
@@ -503,7 +572,7 @@ using namespace std::chrono;
          * @param lbName        name to assign this LB.
          * @param adminToken    token used to interact with LB.
          * @param untilSeconds  time (seconds past epoch) at which reservation ends.
-         * @param ipv6          use IP version 6 destination address when constructing
+         * @param useIPv6       use IP version 6 destination address when constructing
          *                      URI containing info for sending data.
          *
          * @return resulting URI starting with "ejfat",
@@ -511,7 +580,7 @@ using namespace std::chrono;
          */
         std::string LbReservation::ReserveLoadBalancer(const std::string& cpIP, uint16_t cpPort,
                                                        std::string lbName, std::string adminToken,
-                                                       int64_t untilSeconds, bool ipv6) {
+                                                       int64_t untilSeconds, bool useIPv6) {
 
             std::string cpTarget = cpIP + ":" + std::to_string(cpPort);
             std::unique_ptr<LoadBalancer::Stub> stub_ =
@@ -540,11 +609,30 @@ using namespace std::chrono;
             // The actual RPC
             Status status = stub_->ReserveLoadBalancer(&context, request, &reply);
 
+            // cpIP may have been specified as a host name and not in dot-decimal form.
+            // Convert it now if necessary since we're going to need it in creating
+            // our ejfat URI.
+            std::string ipAddr=cpIP;
+            if (!(is_ipv4(cpIP) || is_ipv6(cpIP))) {
+                std::string ipV4, ipV6;
+                // convert to dot decimal
+                bool ran = resolve_host(cpIP, ipV4, ipV6);
+
+                if (useIPv6 && !ipV6.empty()) {
+//std::cerr << "Converted " << cpIP << " into v6 " << ipV6 << std::endl;
+                    ipAddr = ipV6;
+                }
+                else if (!ipV4.empty()) {
+//std::cerr << "Converted " << cpIP << " into v4 " << ipV4 << std::endl;
+                    ipAddr = ipV4;
+                }
+            }
+
             // To get around a bug in which we get a blank field for syncIpAddress.
             // it should be the same as cpIP.
             std::string syncIP = reply.syncipaddress();
             if (syncIP.empty() || syncIP.size() < 16) {
-                syncIP = cpIP;
+                syncIP = ipAddr;
             }
 
             // Act upon its status
@@ -556,17 +644,17 @@ using namespace std::chrono;
             }
             else {
                 // Things returned from CP used to create ejfat URI
-                if (ipv6) {
+                if (useIPv6) {
                     sprintf(url, "ejfat://%s@%s:%hu/lb/%s?data=%s:%d&sync=%s:%d",
                             reply.token().c_str(),
-                            cpIP.c_str(), cpPort, reply.lbid().c_str(),
+                            ipAddr.c_str(), cpPort, reply.lbid().c_str(),
                             reply.dataipv6address().c_str(), 19522,
                             syncIP.c_str(), reply.syncudpport());
                 }
                 else {
                     sprintf(url, "ejfat://%s@%s:%hu/lb/%s?data=%s:%d&sync=%s:%d",
                             reply.token().c_str(),
-                            cpIP.c_str(), cpPort, reply.lbid().c_str(),
+                            ipAddr.c_str(), cpPort, reply.lbid().c_str(),
                             reply.dataipv4address().c_str(), 19522,
                             syncIP.c_str(), reply.syncudpport());
 
