@@ -90,6 +90,7 @@ using loadbalancer::SendStateRequest;
 using loadbalancer::RegisterReply;
 using loadbalancer::DeregisterReply;
 using loadbalancer::SendStateReply;
+using loadbalancer::GetLoadBalancerRequest;
 
 
 //using google::protobuf::util;
@@ -330,6 +331,10 @@ public:
     static int LoadBalancerStatus(const std::string& cpIP, uint16_t cpPort,
                                   std::string lbId, std::string adminToken,
                                   std::unordered_map<std::string, LbClientStatus>& stats);
+
+    static std::string GetLbUri(const std::string& cpIP, uint16_t cpPort,
+                        std::string lbId, std::string adminToken,
+                        bool useIPv6);
 
 
 

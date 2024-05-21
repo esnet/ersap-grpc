@@ -770,6 +770,98 @@ using namespace std::chrono;
 
 
 
+        /**
+         * STATIC method to get LB connection info, but without the token.
+         *
+         * @param cpIP          control plane IP address for grpc communication.
+         * @param cpPort        control plane TCP port for grpc communication.
+         * @param lbId          id of LB to be freed.
+         * @param adminToken    token used to interact with LB.
+         * @param useIPv6       use IP version 6 destination address when constructing
+         *                      URI containing info for sending data.
+         *
+         * @return resulting URI starting with "ejfat",
+         *         else error string starting with "error".
+         */
+        std::string LbReservation::GetLbUri(const std::string& cpIP, uint16_t cpPort,
+                                    std::string lbId, std::string adminToken,
+                                    bool useIPv6) {
+
+            std::string cpTarget = cpIP + ":" + std::to_string(cpPort);
+            std::unique_ptr<LoadBalancer::Stub> stub_ =
+                    LoadBalancer::NewStub(grpc::CreateChannel(cpTarget, grpc::InsecureChannelCredentials()));
+
+            // LB-request-for-connection info message we are sending to server
+            GetLoadBalancerRequest request;
+
+            request.set_token(adminToken);
+            request.set_lbid(lbId);
+
+            // Container for the response we expect from server
+            ReserveLoadBalancerReply reply;
+
+            // Context for the client. It could be used to convey extra information to
+            // the server and/or tweak certain RPC behaviors.
+            ClientContext context;
+
+            // The actual RPC
+            Status status = stub_->GetLoadBalancer(&context, request, &reply);
+
+            // cpIP may have been specified as a host name and not in dot-decimal form.
+            // Convert it now if necessary since we're going to need it in creating
+            // our ejfat URI.
+            std::string ipAddr=cpIP;
+            if (!(is_ipv4(cpIP) || is_ipv6(cpIP))) {
+                std::string ipV4, ipV6;
+                // convert to dot decimal
+                bool ran = resolve_host(cpIP, ipV4, ipV6);
+
+                if (useIPv6 && !ipV6.empty()) {
+//std::cerr << "Converted " << cpIP << " into v6 " << ipV6 << std::endl;
+                    ipAddr = ipV6;
+                }
+                else if (!ipV4.empty()) {
+//std::cerr << "Converted " << cpIP << " into v4 " << ipV4 << std::endl;
+                    ipAddr = ipV4;
+                }
+            }
+
+            // To get around a bug in which we get a blank field for syncIpAddress.
+            // it should be the same as cpIP.
+            std::string syncIP = reply.syncipaddress();
+            if (syncIP.empty() || syncIP.size() < 16) {
+                syncIP = ipAddr;
+            }
+
+            // Act upon its status
+            char url[256];
+
+            if (!status.ok()) {
+                //std::cout << status.error_code() << ": " << status.error_message() << std::endl;
+                sprintf(url, "error = %s", status.error_message().c_str());
+            }
+            else {
+                // Things returned from CP used to create ejfat URI
+                if (useIPv6) {
+                    sprintf(url, "ejfat://%s:%hu/lb/%s?data=%s:%d&sync=%s:%d",
+                            ipAddr.c_str(), cpPort, reply.lbid().c_str(),
+                            reply.dataipv6address().c_str(), 19522,
+                            syncIP.c_str(), reply.syncudpport());
+                }
+                else {
+                    sprintf(url, "ejfat://%s:%hu/lb/%s?data=%s:%d&sync=%s:%d",
+                            ipAddr.c_str(), cpPort, reply.lbid().c_str(),
+                            reply.dataipv4address().c_str(), 19522,
+                            syncIP.c_str(), reply.syncudpport());
+
+                }
+            }
+
+            return url;
+        }
+
+
+
         // Getters
         const std::string & LbReservation::getLbName()        const   {return lbName;}
         const std::string & LbReservation::getAdminToken()    const   {return adminToken;}
