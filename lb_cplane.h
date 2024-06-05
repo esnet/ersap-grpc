@@ -204,7 +204,7 @@ class LbControlPlaneClient {
       	int Deregister() const;
         int SendState()  const;
 
-        void update(float fill, float pidErr);
+        void update(float fill, float pidErr, bool isReady = true);
 
         const std::string & getCpAddr()       const;
         const std::string & getDataAddr()     const;

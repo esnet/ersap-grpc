@@ -171,16 +171,12 @@ using namespace std::chrono;
          * Update internal state of this object (eventually sent to control plane).
          * @param fill      % of fifo filled
          * @param pidErr    pid error (units of % fifo filled)
+         * @param ready     if true, ready for more data
          */
-        void LbControlPlaneClient::update(float fill, float pidErr) {
+        void LbControlPlaneClient::update(float fill, float pidErr, bool ready) {
         	fillPercent = fill;
         	pidError = pidErr;
-        	isReady = true;
-
-        	// This is NOT working
-        	//if (fill >= 0.95) {
-        	//    isReady = false;
-        	//}
+        	isReady = ready;
         }
 
 
